@@ -29,13 +29,17 @@ namespace MetaMorpheusGUI
         private readonly ObservableCollection<ModTypeForTreeViewModel> FixedModTypeForTreeViewObservableCollection = new ObservableCollection<ModTypeForTreeViewModel>();
         private readonly ObservableCollection<ModTypeForTreeViewModel> VariableModTypeForTreeViewObservableCollection = new ObservableCollection<ModTypeForTreeViewModel>();
         private CustomFragmentationWindow CustomFragmentationWindow;
-
+        private TaskSettingViewModel TaskSettingViewModel;
         public XLSearchTaskWindow(XLSearchTask task)
         {
             InitializeComponent();
             PopulateChoices();
             TheTask = task ?? new XLSearchTask();
-            UpdateFieldsFromTask(TheTask);
+
+            var updateFieldsFromNewTaskAction = (MetaMorpheusTask task) => UpdateFieldsFromTask(task as XLSearchTask);
+            TaskSettingViewModel = new(TheTask, updateFieldsFromNewTaskAction, GetTaskFromGui);
+            TaskSettingsCtrl.DataContext = TaskSettingViewModel;
+            setDefaultbutton.DataContext = TaskSettingViewModel;
 
             if (task == null)
             {
@@ -170,6 +174,7 @@ namespace MetaMorpheusGUI
             maxThreadsTextBox.Text = task.CommonParameters.MaxThreadsToUsePerFile.ToString(CultureInfo.InvariantCulture);
             CustomFragmentationWindow = new CustomFragmentationWindow(task.CommonParameters.CustomIons);
             ckbPepXML.IsChecked = task.XlSearchParameters.WritePepXml;
+            WriteSpectralLibraryCheckBox.IsChecked = task.XlSearchParameters.WriteSpectralLibrary;
             //ckbPercolator.IsChecked = task.XlSearchParameters.WriteOutputForPercolator;
             OutputFileNameTextBox.Text = task.CommonParameters.TaskDescriptor;
 
@@ -235,14 +240,24 @@ namespace MetaMorpheusGUI
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
+            XLSearchTask task = GetTaskFromGui();
+            if (task == null)
+                return;
+
+            TheTask = task;
+            DialogResult = true;
+        }
+
+        private XLSearchTask GetTaskFromGui()
+        {
             string fieldNotUsed = "1";
 
             if (!GlobalGuiSettings.CheckTaskSettingsValidity(XLPrecusorMsTlTextBox.Text, productMassToleranceTextBox.Text, missedCleavagesTextBox.Text,
                 maxModificationIsoformsTextBox.Text, MinPeptideLengthTextBox.Text, MaxPeptideLengthTextBox.Text, maxThreadsTextBox.Text, minScoreAllowed.Text,
-                fieldNotUsed, fieldNotUsed, fieldNotUsed, TopNPeaksTextBox.Text, MinRatioTextBox.Text, null, null, numberOfDatabaseSearchesTextBox.Text, 
+                fieldNotUsed, fieldNotUsed, fieldNotUsed, TopNPeaksTextBox.Text, MinRatioTextBox.Text, null, null, numberOfDatabaseSearchesTextBox.Text,
                 fieldNotUsed, fieldNotUsed, null, null, null))
             {
-                return;
+                return null;
             }
 
             DissociationType dissociationType = GlobalVariables.AllSupportedDissociationTypes[DissociationTypeComboBox.SelectedItem.ToString()];
@@ -260,7 +275,7 @@ namespace MetaMorpheusGUI
 
             CustomFragmentationWindow.Close();
 
-            TheTask.XlSearchParameters.CrosslinkSearchTopNum = int.Parse(txtXLTopNum.Text, CultureInfo.InvariantCulture);           
+            TheTask.XlSearchParameters.CrosslinkSearchTopNum = int.Parse(txtXLTopNum.Text, CultureInfo.InvariantCulture);
             TheTask.XlSearchParameters.CrosslinkAtCleavageSite = ckbCrosslinkAtCleavageSite.IsChecked.Value;
             TheTask.XlSearchParameters.Crosslinker = (Crosslinker)cbCrosslinkers.SelectedItem;
 
@@ -306,6 +321,7 @@ namespace MetaMorpheusGUI
             }
 
             TheTask.XlSearchParameters.WritePepXml = ckbPepXML.IsChecked.Value;
+            TheTask.XlSearchParameters.WriteSpectralLibrary = WriteSpectralLibraryCheckBox.IsChecked.Value;
 
             var listOfModsVariable = new List<(string, string)>();
             foreach (var heh in VariableModTypeForTreeViewObservableCollection)
@@ -344,8 +360,7 @@ namespace MetaMorpheusGUI
                 assumeOrphanPeaksAreZ1Fragments: protease.Name != "top-down");
 
             TheTask.CommonParameters = commonParamsToSave;
-
-            DialogResult = true;
+            return TheTask;
         }
 
         private void ApmdExpander_Collapsed(object sender, RoutedEventArgs e)
@@ -429,13 +444,7 @@ namespace MetaMorpheusGUI
             // remove event handler from timer
             // keeping it will trigger an exception because the closed window stops existing
 
-            CustomFragmentationWindow.Close();
-        }
-
-        private void SaveAsDefault_Click(object sender, RoutedEventArgs e)
-        {
-            SaveButton_Click(sender, e);
-            Toml.WriteFile(TheTask, Path.Combine(GlobalVariables.DataDir, "DefaultParameters", @"XLSearchTaskDefault.toml"), MetaMorpheusTask.tomlConfig);
+            CustomFragmentationWindow?.Close();
         }
 
         private void NonSpecificUpdate(object sender, SelectionChangedEventArgs e)

@@ -6,6 +6,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Omics.Modifications;
+using Omics.SpectrumMatch;
 
 namespace TaskLayer
 {
@@ -61,9 +63,14 @@ namespace TaskLayer
                 foreach (var fullFilePath in currentRawFileList)
                 {
                     string fileNameNoExtension = Path.GetFileNameWithoutExtension(fullFilePath);
-                    WriteFile.WritePepXML_xl(writeToXml.Where(p => p.FullFilePath == fullFilePath).ToList(), proteinList, dbFilenameList[0].FilePath, variableModifications, fixedModifications, localizeableModificationTypes, outputFolder, fileNameNoExtension, commonParameters, xlSearchParameters);
+                    WriteXlFile.WritePepXML_xl(writeToXml.Where(p => p.FullFilePath == fullFilePath).ToList(), proteinList, dbFilenameList[0].FilePath, variableModifications, fixedModifications, localizeableModificationTypes, outputFolder, fileNameNoExtension, commonParameters, xlSearchParameters);
                     FinishedWritingFile(Path.Combine(outputFolder, fileNameNoExtension + ".pep.XML"), new List<string> { taskId });
                 }
+            }
+
+            if(xlSearchParameters.WriteSpectralLibrary)
+            {
+                WriteXlSpectralLibrary(interCsms, intraCsms, singlePsms, outputFolder);
             }
 
             return MyTaskResults;
@@ -115,14 +122,14 @@ namespace TaskLayer
             if (interCsms.Any())
             {
                 string file = Path.Combine(outputFolder, "XL_Interlinks.tsv");
-                WriteFile.WritePsmCrossToTsv(interCsms, file, 2);
+                WriteXlFile.WritePsmCrossToTsv(interCsms, file, 2);
                 FinishedWritingFile(file, new List<string> { taskId });
             }
             
             if (xlSearchParameters.WriteOutputForPercolator)
             {
                 var interPsmsXLPercolator = interCsms.Where(p => p.Score >= 2 && p.BetaPeptide.Score >= 2).OrderBy(p => p.ScanNumber).ToList();
-                WriteFile.WriteCrosslinkToTxtForPercolator(interPsmsXLPercolator, outputFolder, "XL_Interlinks_Percolator", xlSearchParameters.Crosslinker);
+                WriteXlFile.WriteCrosslinkToTxtForPercolator(interPsmsXLPercolator, outputFolder, "XL_Interlinks_Percolator", xlSearchParameters.Crosslinker);
                 FinishedWritingFile(Path.Combine(outputFolder, "XL_Interlinks_Percolator.txt"), new List<string> { taskId });
             }
 
@@ -130,14 +137,14 @@ namespace TaskLayer
             if (intraCsms.Any())
             {
                 string file = Path.Combine(outputFolder, "XL_Intralinks.tsv");
-                WriteFile.WritePsmCrossToTsv(intraCsms, file, 2);
+                WriteXlFile.WritePsmCrossToTsv(intraCsms, file, 2);
                 FinishedWritingFile(file, new List<string> { taskId });
             }
 
             if (xlSearchParameters.WriteOutputForPercolator)
             {
                 var intraPsmsXLPercolator = intraCsms.Where(p => p.Score >= 2 && p.BetaPeptide.Score >= 2).OrderBy(p => p.ScanNumber).ToList();
-                WriteFile.WriteCrosslinkToTxtForPercolator(intraPsmsXLPercolator, outputFolder, "XL_Intralinks_Percolator", xlSearchParameters.Crosslinker);
+                WriteXlFile.WriteCrosslinkToTxtForPercolator(intraPsmsXLPercolator, outputFolder, "XL_Intralinks_Percolator", xlSearchParameters.Crosslinker);
                 FinishedWritingFile(Path.Combine(outputFolder, "XL_Intralinks_Percolator.txt"), new List<string> { taskId });
             }
 
@@ -146,7 +153,7 @@ namespace TaskLayer
             if (singlePsms.Any())
             {
                 string writtenFileSingle = Path.Combine(outputFolder, "SinglePeptides" + ".tsv");
-                WriteFile.WritePsmCrossToTsv(singlePsms, writtenFileSingle, 1);
+                WriteXlFile.WritePsmCrossToTsv(singlePsms, writtenFileSingle, 1);
                 FinishedWritingFile(writtenFileSingle, new List<string> { taskId });
             }
 
@@ -154,7 +161,7 @@ namespace TaskLayer
             if (loopPsms.Any())
             {
                 string writtenFileLoop = Path.Combine(outputFolder, "Looplinks" + ".tsv");
-                WriteFile.WritePsmCrossToTsv(loopPsms, writtenFileLoop, 1);
+                WriteXlFile.WritePsmCrossToTsv(loopPsms, writtenFileLoop, 1);
                 FinishedWritingFile(writtenFileLoop, new List<string> { taskId });
             }
 
@@ -162,7 +169,7 @@ namespace TaskLayer
             if (deadendPsms.Any())
             {
                 string writtenFileDeadend = Path.Combine(outputFolder, "Deadends" + ".tsv");
-                WriteFile.WritePsmCrossToTsv(deadendPsms, writtenFileDeadend, 1);
+                WriteXlFile.WritePsmCrossToTsv(deadendPsms, writtenFileDeadend, 1);
                 FinishedWritingFile(writtenFileDeadend, new List<string> { taskId });
             }
         }
@@ -226,6 +233,50 @@ namespace TaskLayer
 
                 csm.SetFdrValues(cumulativeTarget, cumulativeDecoy, qValue, 0, 0, qValueNotch, pep, pepQValue);
             }
+        }
+
+        //for those spectra matching the same peptide/protein with same charge, save the one with highest score
+        private void WriteXlSpectralLibrary(
+            List<CrosslinkSpectralMatch> interCsms, 
+            List<CrosslinkSpectralMatch> intraCsms, 
+            List<CrosslinkSpectralMatch> singlePsms,
+            string outputFolder)
+        {
+            IEnumerable<CrosslinkSpectralMatch> linkedCsms = interCsms.Concat(intraCsms);
+            List<LibrarySpectrum> librarySpectra = new();
+
+            foreach (var csmGroups in linkedCsms.Where(c => 
+                    !c.IsDecoy
+                    && c.FdrInfo.QValueNotch < 0.05)
+                .GroupBy(c => (c.UniqueSequence, c.ScanPrecursorCharge)))
+            {
+                CrosslinkSpectralMatch bestCsm = csmGroups.MaxBy(c => c.XLTotalScore);
+                if (bestCsm == null) continue;
+                librarySpectra.Add(new CrosslinkLibrarySpectrum(
+                    uniqueSequence: bestCsm.UniqueSequence,
+                    precursorMz: bestCsm.ScanPrecursorMonoisotopicPeakMz,
+                    precursorCharge: bestCsm.ScanPrecursorCharge,
+                    peaks: bestCsm.MatchedFragmentIons,
+                    rt: bestCsm.ScanRetentionTime,
+                    betaPeptide: bestCsm.BetaPeptide));
+            }
+
+            foreach (var singlePsmGroup in singlePsms.Where(c =>
+                    !c.IsDecoy
+                    && c.FdrInfo.QValueNotch < 0.05)
+                .GroupBy(c => (c.FullSequence, c.ScanPrecursorCharge)))
+            {
+                CrosslinkSpectralMatch bestPsm = singlePsmGroup.MaxBy(c => c.Score);
+                if (bestPsm == null) continue;
+                librarySpectra.Add(new LibrarySpectrum(
+                    sequence: bestPsm.FullSequence,
+                    precursorMz: bestPsm.ScanPrecursorMonoisotopicPeakMz,
+                    chargeState: bestPsm.ScanPrecursorCharge,
+                    peaks: bestPsm.MatchedFragmentIons,
+                    rt: bestPsm.ScanRetentionTime));
+            }
+
+            WriteSpectralLibrary(librarySpectra, outputFolder);
         }
     }
 }

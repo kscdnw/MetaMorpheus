@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Omics.SpectrumMatch;
 
 namespace GuiFunctions
 {
@@ -16,13 +17,30 @@ namespace GuiFunctions
     /// </summary>
     public class CrosslinkSpectrumMatchPlot : SpectrumMatchPlot
     {
-        public CrosslinkSpectrumMatchPlot(OxyPlot.Wpf.PlotView plotView, PsmFromTsv csm, MsDataScan scan, Canvas stationaryCanvas)
+        public CrosslinkSpectrumMatchPlot(OxyPlot.Wpf.PlotView plotView, PsmFromTsv csm, MsDataScan scan, Canvas stationaryCanvas,
+            bool annotateProperties = true, LibrarySpectrum librarySpectrum = null)
             : base(plotView, csm, scan)
         {
+
+            if (annotateProperties)
+            {
+                AnnotateProperties(librarySpectrum);
+            }
+
             // annotate beta peptide matched ions
             AnnotateMatchedIons(isBetaPeptide: true, csm.BetaPeptideMatchedIons);
-
             ZoomAxes(csm.MatchedIons.Concat(csm.BetaPeptideMatchedIons), yZoom: 1.5);
+
+            if (librarySpectrum != null)
+            {
+                AnnotateLibraryIons(isBetaPeptide: false, librarySpectrum.MatchedFragmentIons);
+                var xlLibrarySpectrum = librarySpectrum as CrosslinkLibrarySpectrum;
+                if (xlLibrarySpectrum?.BetaPeptideSpectrum?.MatchedFragmentIons != null)
+                {
+                    AnnotateLibraryIons(isBetaPeptide: true, xlLibrarySpectrum.BetaPeptideSpectrum.MatchedFragmentIons);
+                }
+            }
+
             RefreshChart();
         }
 

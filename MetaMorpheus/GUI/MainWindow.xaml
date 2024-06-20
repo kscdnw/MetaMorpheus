@@ -412,7 +412,7 @@
                     </TextBlock>
 
                     <!--Buttons to add databases-->
-                    <Button Name="DownloadUniProtDatabaseButton" Grid.Row="2" Content="DOWNLOAD PROTEOME" 
+                    <Button Name="DownloadUniProtDatabaseButton" Grid.Row="2" Content="DOWNLOAD PROTEOME" Visibility="Collapsed"
                         Click="DownloadUniProtDatabase_Click" Style="{StaticResource ImportantButtonStyle}" Margin="10,0,0,0" HorizontalAlignment="Left" />
 
                     <Button Name="OpenProteomesFolder" Grid.Row="2" Content="OPEN PROTEOMES FOLDER" 
@@ -463,15 +463,15 @@
 
                     <!--Button to add spectra files-->
                     <Button Name="AddSpectraButton" Grid.Row="2" Content="+ADD SPECTRA" Click="AddSpectraFile_Click" HorizontalAlignment="Right" 
-                            Style="{StaticResource ImportantButtonStyle}" Margin="0,0,10,0"/>
+                             Style="{StaticResource ImportantButtonStyle}" Margin="0,0,10,0"/>
 
                     <Button Name="SetFileSpecificSettingsButton" Grid.Row="2" Content="SET FILE-SPECIFIC SETTINGS" Click="SetFileSpecificParameters_Click" 
                             HorizontalAlignment="Right" Style="{StaticResource ImportantButtonStyle}"
-                        Margin="0,0,211,0"/>
+                            Margin="0,0,211,0"/>
 
                     <Button Name="SetExperimentalDesignButton" Grid.Row="2" Content="SET EXPERIMENTAL DESIGN" Click="SetExperimentalDesign_Click" 
                             HorizontalAlignment="Right" Style="{StaticResource ImportantButtonStyle}"
-                        Margin="0,0,412,0"/>
+                            Margin="0,0,412,0"/>
 
                     <!--The list of spectra files-->
                     <DataGrid Name="dataGridSpectraFiles" ItemsSource="{Binding}" Grid.Row="3" Style="{StaticResource x:DataGridStyle}"

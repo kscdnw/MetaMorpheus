@@ -9,7 +9,7 @@ using Nett;
 using NUnit.Framework;
 using Proteomics;
 using Proteomics.AminoAcidPolymer;
-using Proteomics.Fragmentation;
+using Omics.Fragmentation;
 using Proteomics.ProteolyticDigestion;
 using System;
 using System.Collections.Generic;
@@ -18,6 +18,8 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using Omics.Digestion;
+using Omics.Modifications;
 using TaskLayer;
 using UsefulProteomicsDatabases;
 
@@ -211,14 +213,14 @@ namespace Test
 
             //Test Output
             var task = new XLSearchTask();
-            WriteFile.WritePepXML_xl(newPsms, proteinList, null, variableModifications, fixedModifications, null, TestContext.CurrentContext.TestDirectory, "pep.XML", commonParameters, xlSearchParameters);
+            WriteXlFile.WritePepXML_xl(newPsms, proteinList, null, variableModifications, fixedModifications, null, TestContext.CurrentContext.TestDirectory, "pep.XML", commonParameters, xlSearchParameters);
 
             File.Delete(@"singlePsms.tsv");
             File.Delete(@"pep.XML.pep.xml");
             File.Delete(@"allPsms.tsv");
 
             // write percolator result
-            WriteFile.WriteCrosslinkToTxtForPercolator(newPsms.Where(q => q.CrossType == PsmCrossType.Inter || q.CrossType == PsmCrossType.Intra).ToList(), TestContext.CurrentContext.TestDirectory, "perc", new Crosslinker());
+            WriteXlFile.WriteCrosslinkToTxtForPercolator(newPsms.Where(q => q.CrossType == PsmCrossType.Inter || q.CrossType == PsmCrossType.Intra).ToList(), TestContext.CurrentContext.TestDirectory, "perc", new Crosslinker());
             var percOut = File.ReadAllLines(Path.Combine(TestContext.CurrentContext.TestDirectory, @"perc.txt"), Encoding.UTF8);
             string header = "SpecId\tLabel\tScannr\tScore\tdScore\tCharge\tMass\tPPM\tLenShort\tLenLong\tLenSum\tPeptide\tProtein";
             string dataRow = "T-2-1\t1\t2\t9.080357142857142\t9.080357142857142\t3\t1994.05\t79237.2823474838\t7\t9\t16\t-.EKVLTSSAR2--LSQKFPK4.-\tFake01(2)\tFake02(4)";
@@ -321,8 +323,8 @@ namespace Test
             CrosslinkSpectralMatch oneCsmBetaA = new CrosslinkSpectralMatch(mswpVbetaA, 0, 10, 1, scan, new CommonParameters(), new List<MatchedFragmentIon>());
             CrosslinkSpectralMatch threeCsmBetaV = new CrosslinkSpectralMatch(mswpLbetaV, 0, 40, 1, scan, new CommonParameters(), new List<MatchedFragmentIon>());
 
-            twoCsm.BetaPeptide = twoCsmBetaL;
             oneCsm.BetaPeptide = oneCsmBetaA;
+            twoCsm.BetaPeptide = twoCsmBetaL;
             threeCsm.BetaPeptide = threeCsmBetaV;
 
             twoCsm.XLTotalScore = 22;
@@ -336,6 +338,15 @@ namespace Test
             twoCsm.BetaPeptide.ResolveAllAmbiguities();
             oneCsm.BetaPeptide.ResolveAllAmbiguities();
             threeCsm.BetaPeptide.ResolveAllAmbiguities();
+
+            Assert.AreEqual(oneCsm.UniqueSequence, oneCsm.FullSequence);
+            twoCsm.LinkPositions = new List<int> { 1 };
+            twoCsm.BetaPeptide.LinkPositions = new List<int> { 2 };
+            twoCsm.CrossType = PsmCrossType.Cross;
+            Assert.AreEqual(twoCsm.UniqueSequence, twoCsm.FullSequence + "(1)" + twoCsm.BetaPeptide.FullSequence + "(2)");
+            threeCsm.CrossType = PsmCrossType.Loop;
+            threeCsm.LinkPositions = new List<int> { 1, 3 };
+            Assert.AreEqual(threeCsm.UniqueSequence, threeCsm.FullSequence + "(1-3)"); //Because the beta peptide link positions wasn't set, the csm unique sequence is a loop link sequence, not a crosslink sequence
 
             List<CrosslinkSpectralMatch> reverse = new List<CrosslinkSpectralMatch> { twoCsm, oneCsm, threeCsm };
 
@@ -574,10 +585,10 @@ namespace Test
                 }
             }
 
-            Assert.AreEqual(56, inter);
+            Assert.AreEqual(55, inter);
             Assert.AreEqual(83, intra);
-            Assert.AreEqual(230, single);
-            Assert.AreEqual(9, loop);
+            Assert.AreEqual(229, single);
+            Assert.AreEqual(8, loop);
             Assert.AreEqual(0, deadend);
             Assert.AreEqual(62, deadendH2O);
             Assert.AreEqual(0, deadendNH2);
@@ -716,7 +727,7 @@ namespace Test
             deadendNH2 = 0;
             deadendTris = 0;
 
-            foreach (CrosslinkSpectralMatch csm in firstCsmsFromListsOfCsms.Where(c => c.FdrInfo.PEP_QValue <= 0.01).ToList())
+            foreach (CrosslinkSpectralMatch csm in firstCsmsFromListsOfCsms.Where(c => c.FdrInfo.QValue <= 0.01).ToList())
             {
                 switch (csm.CrossType)
                 {
@@ -759,12 +770,12 @@ namespace Test
             }
 
             Assert.AreEqual(0, unnasignedCrossType);
-            Assert.AreEqual(76, inter);
-            Assert.AreEqual(101, intra);
-            Assert.AreEqual(241, single);
-            Assert.AreEqual(10, loop);
+            Assert.AreEqual(40, inter);
+            Assert.AreEqual(49, intra);
+            Assert.AreEqual(231, single);
+            Assert.AreEqual(8, loop);
             Assert.AreEqual(0, deadend);
-            Assert.AreEqual(67, deadendH2O);
+            Assert.AreEqual(61, deadendH2O);
             Assert.AreEqual(0, deadendNH2);
             Assert.AreEqual(0, deadendTris);
         }
@@ -1176,7 +1187,7 @@ namespace Test
         public static void XLSearchTastWriteFileTest()
         {
             //sending zero CSMs to write doesn't error. Method Simply Returns.
-            WriteFile.WritePsmCrossToTsv(new List<CrosslinkSpectralMatch>(), "", 0);
+            WriteXlFile.WritePsmCrossToTsv(new List<CrosslinkSpectralMatch>(), "", 0);
 
             //sending the wrong writeType doesn't error. Method Simply breaks.
             string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, @"XlTestData\TestXLWrite");
@@ -1212,7 +1223,7 @@ namespace Test
             csmAlpha.LinkPositions = new() { 1 };
             csmBeta.LinkPositions = new() { 1 };
 
-            WriteFile.WritePsmCrossToTsv(new List<CrosslinkSpectralMatch>() { csmAlpha}, outputFolder + "csm.psmtsv", 0);
+            WriteXlFile.WritePsmCrossToTsv(new List<CrosslinkSpectralMatch>() { csmAlpha}, outputFolder + "csm.psmtsv", 0);
 
             //check decoy label
             csmAlpha.BetaPeptide = csmBeta;
@@ -1239,7 +1250,7 @@ namespace Test
             Assert.AreEqual("ACCESSION()", lastRandomString);
 
 
-            WriteFile.WriteCrosslinkToTxtForPercolator(new List<CrosslinkSpectralMatch>() { csmAlpha }, outputFolder, "percolator.tsv", xlinker);
+            WriteXlFile.WriteCrosslinkToTxtForPercolator(new List<CrosslinkSpectralMatch>() { csmAlpha }, outputFolder, "percolator.tsv", xlinker);
             Directory.Delete(outputFolder, true);
         }
 
@@ -1313,7 +1324,7 @@ namespace Test
             csms[0].First().ResolveAllAmbiguities();
             csms[0].First().SetFdrValues(0, 0, 0.1, 0, 0, 0, 0, 0);
 
-            WriteFile.WritePepXML_xl(csms.SelectMany(p => p).ToList(), new List<Protein>(), "", new List<Modification> { deadend }, new List<Modification> { deadend }, new List<string>(), TestContext.CurrentContext.TestDirectory, "test", new CommonParameters(), new XlSearchParameters { Crosslinker = crosslinker });
+            WriteXlFile.WritePepXML_xl(csms.SelectMany(p => p).ToList(), new List<Protein>(), "", new List<Modification> { deadend }, new List<Modification> { deadend }, new List<string>(), TestContext.CurrentContext.TestDirectory, "test", new CommonParameters(), new XlSearchParameters { Crosslinker = crosslinker });
             File.Delete(Path.Combine(TestContext.CurrentContext.TestDirectory, @"test.pep.XML"));
         }
 
@@ -1407,7 +1418,7 @@ namespace Test
 
             // write results to TSV
             csm.SetFdrValues(1, 0, 0, 0, 0, 0, 0, 0);
-            WriteFile.WritePsmCrossToTsv(new List<CrosslinkSpectralMatch> { csm }, outputFile, 2);
+            WriteXlFile.WritePsmCrossToTsv(new List<CrosslinkSpectralMatch> { csm }, outputFile, 2);
 
             // read results from TSV
             var psmFromTsv = PsmTsvReader.ReadTsv(outputFile, out var warnings).First();
@@ -1430,6 +1441,7 @@ namespace Test
 
             Assert.That(csm.ProteinAccession == null && csm.BetaPeptide.ProteinAccession == null);
             Assert.That(psmFromTsv.ProteinAccession == "BSA|BSA2");
+            Assert.That(psmFromTsv.UniqueSequence, Is.EqualTo(psmFromTsv.FullSequence + psmFromTsv.BetaPeptideFullSequence));
 
             File.Delete(outputFile);
         }
@@ -1495,7 +1507,7 @@ namespace Test
 
             // write results to TSV
             csm.SetFdrValues(1, 0, 0, 0, 0, 0, 0, 0);
-            WriteFile.WritePsmCrossToTsv(new List<CrosslinkSpectralMatch> { csm }, outputFile, 2);
+            WriteXlFile.WritePsmCrossToTsv(new List<CrosslinkSpectralMatch> { csm }, outputFile, 2);
 
             // read results from TSV
             var psmFromTsv = PsmTsvReader.ReadTsv(outputFile, out var warnings).First();

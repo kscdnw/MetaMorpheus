@@ -2,7 +2,7 @@
 using MassSpectrometry;
 using MzLibUtil;
 using Nett;
-using Proteomics.Fragmentation;
+using Omics.Fragmentation;
 using Proteomics.ProteolyticDigestion;
 using System;
 using System.Collections.Generic;
@@ -19,6 +19,9 @@ using UsefulProteomicsDatabases;
 using GuiFunctions;
 using Proteomics;
 using System.Threading.Tasks;
+using static System.Net.WebRequestMethods;
+using Omics.Digestion;
+using Omics.Modifications;
 
 namespace MetaMorpheusGUI
 {
@@ -36,7 +39,9 @@ namespace MetaMorpheusGUI
         private readonly ObservableCollection<SilacInfoForDataGrid> StaticSilacLabelsObservableCollection = new ObservableCollection<SilacInfoForDataGrid>();
         private bool AutomaticallyAskAndOrUpdateParametersBasedOnProtease = true;
         private CustomFragmentationWindow CustomFragmentationWindow;
+        public TaskSettingViewModel TaskSettingViewModel { get; init; }
         private string _defaultMultiplexType = "TMT10";
+
 
         internal SearchTask TheTask { get; private set; }
 
@@ -47,7 +52,10 @@ namespace MetaMorpheusGUI
 
             AutomaticallyAskAndOrUpdateParametersBasedOnProtease = false;
             PopulateChoices();
-            UpdateFieldsFromTask(TheTask);
+            var updateFieldsFromNewTaskAction = (MetaMorpheusTask task) => UpdateFieldsFromTask(task as SearchTask);
+            TaskSettingViewModel = new(TheTask, updateFieldsFromNewTaskAction, GetTaskFromGui);
+            TaskSettingsCtrl.DataContext = TaskSettingViewModel;
+            setDefaultbutton.DataContext = TaskSettingViewModel;
             AutomaticallyAskAndOrUpdateParametersBasedOnProtease = true;
 
             if (task == null)
@@ -155,7 +163,9 @@ namespace MetaMorpheusGUI
                 MultiplexComboBox.Items.Add(labelModType);
             }
             MultiplexComboBox.SelectedItem = _defaultMultiplexType;
+
         }
+
 
         /// <summary>
         /// Initializes the fields in the search task window upon opening to the settings of the param Task
@@ -205,7 +215,7 @@ namespace MetaMorpheusGUI
                     SilacInfoForDataGrid infoToAdd = new SilacInfoForDataGrid(startLabel, SilacModificationWindow.ExperimentType.Start);
                     if (startLabel.AdditionalLabels != null)
                     {
-                        foreach (Proteomics.SilacLabel additionalLabel in startLabel.AdditionalLabels)
+                        foreach (SilacLabel additionalLabel in startLabel.AdditionalLabels)
                         {
                             infoToAdd.AddAdditionalLabel(new SilacInfoForDataGrid(additionalLabel, SilacModificationWindow.ExperimentType.Start));
                         }
@@ -222,7 +232,7 @@ namespace MetaMorpheusGUI
                     SilacInfoForDataGrid infoToAdd = new SilacInfoForDataGrid(endLabel, SilacModificationWindow.ExperimentType.End);
                     if (endLabel.AdditionalLabels != null)
                     {
-                        foreach (Proteomics.SilacLabel additionalLabel in endLabel.AdditionalLabels)
+                        foreach (SilacLabel additionalLabel in endLabel.AdditionalLabels)
                         {
                             infoToAdd.AddAdditionalLabel(new SilacInfoForDataGrid(additionalLabel, SilacModificationWindow.ExperimentType.End));
                         }
@@ -238,13 +248,13 @@ namespace MetaMorpheusGUI
             else if (task.SearchParameters.SilacLabels != null && task.SearchParameters.SilacLabels.Count != 0)
             {
                 CheckBoxSILAC.IsChecked = true;
-                List<Proteomics.SilacLabel> labels = task.SearchParameters.SilacLabels;
-                foreach (Proteomics.SilacLabel label in labels)
+                List<SilacLabel> labels = task.SearchParameters.SilacLabels;
+                foreach (SilacLabel label in labels)
                 {
                     SilacInfoForDataGrid infoToAdd = new SilacInfoForDataGrid(label, SilacModificationWindow.ExperimentType.Multiplex);
                     if (label.AdditionalLabels != null)
                     {
-                        foreach (Proteomics.SilacLabel additionalLabel in label.AdditionalLabels)
+                        foreach (SilacLabel additionalLabel in label.AdditionalLabels)
                         {
                             infoToAdd.AddAdditionalLabel(new SilacInfoForDataGrid(additionalLabel, SilacModificationWindow.ExperimentType.Multiplex));
                         }
@@ -296,7 +306,6 @@ namespace MetaMorpheusGUI
             AllAmbiguity.IsChecked = task.CommonParameters.ReportAllAmbiguity;
             DeconvolutionMaxAssumedChargeStateTextBox.Text = task.CommonParameters.DeconvolutionMaxAssumedChargeState.ToString();
             MinScoreAllowed.Text = task.CommonParameters.ScoreCutoff.ToString(CultureInfo.InvariantCulture);
-            DeltaScoreCheckBox.IsChecked = task.CommonParameters.UseDeltaScore;
             TrimMs1.IsChecked = task.CommonParameters.TrimMs1Peaks;
             TrimMsMs.IsChecked = task.CommonParameters.TrimMsMsPeaks;
             AddTruncationsCheckBox.IsChecked = task.CommonParameters.AddTruncations;
@@ -426,33 +435,43 @@ namespace MetaMorpheusGUI
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
+            SearchTask task = GetTaskFromGui();
+            if (task == null)
+                return;
+
+            TheTask = task;
+            DialogResult = true;
+        }
+
+        private SearchTask GetTaskFromGui()
+        {
             CleavageSpecificity searchModeType = GetSearchModeType(); //change search type to semi or non if selected
             SnesUpdates(searchModeType); //decide on singleN/C, make comp ion changes
 
             if (!GlobalGuiSettings.CheckTaskSettingsValidity(
-                PrecursorMassToleranceTextBox.Text, 
-                ProductMassToleranceTextBox.Text, 
+                PrecursorMassToleranceTextBox.Text,
+                ProductMassToleranceTextBox.Text,
                 MissedCleavagesTextBox.Text,
-                maxModificationIsoformsTextBox.Text, 
-                MinPeptideLengthTextBox.Text, 
+                maxModificationIsoformsTextBox.Text,
+                MinPeptideLengthTextBox.Text,
                 MaxPeptideLengthTextBox.Text,
-                MaxThreadsTextBox.Text, 
+                MaxThreadsTextBox.Text,
                 MinScoreAllowed.Text,
-                PeakFindingToleranceTextBox.Text, 
-                HistogramBinWidthTextBox.Text, 
-                DeconvolutionMaxAssumedChargeStateTextBox.Text, 
+                PeakFindingToleranceTextBox.Text,
+                HistogramBinWidthTextBox.Text,
+                DeconvolutionMaxAssumedChargeStateTextBox.Text,
                 NumberOfPeaksToKeepPerWindowTextBox.Text,
-                MinimumAllowedIntensityRatioToBasePeakTexBox.Text, 
-                WindowWidthThomsonsTextBox.Text, 
-                NumberOfWindowsTextBox.Text, 
-                NumberOfDatabaseSearchesTextBox.Text, 
-                MaxModNumTextBox.Text, 
-                MaxFragmentMassTextBox.Text, 
-                QValueThresholdTextBox.Text, 
-                PepQValueThresholdTextBox.Text, 
+                MinimumAllowedIntensityRatioToBasePeakTexBox.Text,
+                WindowWidthThomsonsTextBox.Text,
+                NumberOfWindowsTextBox.Text,
+                NumberOfDatabaseSearchesTextBox.Text,
+                MaxModNumTextBox.Text,
+                MaxFragmentMassTextBox.Text,
+                QValueThresholdTextBox.Text,
+                PepQValueThresholdTextBox.Text,
                 InternalIonsCheckBox.IsChecked.Value ? MinInternalFragmentLengthTextBox.Text : null))
             {
-                return;
+                return null;
             }
 
             Protease protease = (Protease)ProteaseComboBox.SelectedItem;
@@ -470,7 +489,7 @@ namespace MetaMorpheusGUI
                 if (silacError.Length != 0)
                 {
                     MessageBox.Show(silacError);
-                    return;
+                    return null;
                 }
             }
             else
@@ -536,7 +555,7 @@ namespace MetaMorpheusGUI
 
             if (!GlobalGuiSettings.VariableModCheck(listOfModsVariable))
             {
-                return;
+                return null;
             }
 
             bool TrimMs1Peaks = TrimMs1.IsChecked.Value;
@@ -574,7 +593,6 @@ namespace MetaMorpheusGUI
             CommonParameters commonParamsToSave = new CommonParameters(
                 taskDescriptor: OutputFileNameTextBox.Text != "" ? OutputFileNameTextBox.Text : "SearchTask",
                 maxThreadsToUsePerFile: parseMaxThreadsPerFile ? int.Parse(MaxThreadsTextBox.Text, CultureInfo.InvariantCulture) : new CommonParameters().MaxThreadsToUsePerFile,
-                useDeltaScore: DeltaScoreCheckBox.IsChecked.Value,
                 reportAllAmbiguity: AllAmbiguity.IsChecked.Value,
                 deconvolutionMaxAssumedChargeState: int.Parse(DeconvolutionMaxAssumedChargeStateTextBox.Text, CultureInfo.InvariantCulture),
                 totalPartitions: int.Parse(NumberOfDatabaseSearchesTextBox.Text, CultureInfo.InvariantCulture),
@@ -619,7 +637,7 @@ namespace MetaMorpheusGUI
             if (TheTask.SearchParameters.SearchType != SearchType.Classic && dissociationType == DissociationType.Autodetect)
             {
                 MessageBox.Show("Autodetection of dissociation type from scan headers is only available for classic search. Please choose a different dissociation type or search mode");
-                return;
+                return null;
             }
 
             TheTask.SearchParameters.MinAllowedInternalFragmentLength = InternalIonsCheckBox.IsChecked.Value ? Convert.ToInt32(MinInternalFragmentLengthTextBox.Text) : 0;
@@ -643,6 +661,7 @@ namespace MetaMorpheusGUI
             TheTask.SearchParameters.UpdateSpectralLibrary = UpdateSpectralLibraryCheckBox.IsChecked.Value;
             TheTask.SearchParameters.CompressIndividualFiles = CompressIndividualResultsCheckBox.IsChecked.Value;
             TheTask.SearchParameters.IncludeModMotifInMzid = IncludeMotifInModNamesCheckBox.IsChecked.Value;
+
 
             if (RemoveContaminantRadioBox.IsChecked.Value)
             {
@@ -712,7 +731,7 @@ namespace MetaMorpheusGUI
                 catch (Exception ex)
                 {
                     MessageBox.Show("Could not parse custom mass difference acceptor: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
+                    return null;
                 }
 
                 TheTask.SearchParameters.MassDiffAcceptorType = MassDiffAcceptorType.Custom;
@@ -742,7 +761,7 @@ namespace MetaMorpheusGUI
 
                 if (result == MessageBoxResult.Cancel)
                 {
-                    return;
+                    return null;
                 }
             }
 
@@ -754,9 +773,9 @@ namespace MetaMorpheusGUI
             SetModSelectionForPrunedDB();
 
             TheTask.CommonParameters = commonParamsToSave;
-
-            DialogResult = true;
+            return TheTask;
         }
+        
 
         private void ApmdExpander_Collapsed(object sender, RoutedEventArgs e)
         {
@@ -1090,10 +1109,10 @@ namespace MetaMorpheusGUI
             // remove event handler from timer
             // keeping it will trigger an exception because the closed window stops existing
 
-            CustomFragmentationWindow.Close();
+            CustomFragmentationWindow?.Close();
         }
 
-        private static Proteomics.SilacLabel ConvertSilacDataGridInfoToSilacLabel(SilacInfoForDataGrid info)
+        private static SilacLabel ConvertSilacDataGridInfoToSilacLabel(SilacInfoForDataGrid info)
         {
             if (info == null)
             {
@@ -1101,7 +1120,7 @@ namespace MetaMorpheusGUI
             }
             else
             {
-                Proteomics.SilacLabel label = info.SilacLabel[0];
+                SilacLabel label = info.SilacLabel[0];
                 //This is needed to prevent double adding of additional labels. 
                 //A quick test is to create a silac condition with two labels, save, reopen the task, save, and reopen again. 
                 //Without this line, the second label will be doubled. Example: (K+8)&(R+10)&(R+10)
@@ -1210,7 +1229,7 @@ namespace MetaMorpheusGUI
                 //if they're all multiplex
                 if (StaticSilacLabelsObservableCollection.All(x => x.LabelType == SilacModificationWindow.ExperimentType.Multiplex))
                 {
-                    List<Proteomics.SilacLabel> labelsToSave = new List<Proteomics.SilacLabel>();
+                    List<SilacLabel> labelsToSave = new List<SilacLabel>();
                     foreach (SilacInfoForDataGrid info in StaticSilacLabelsObservableCollection)
                     {
                         labelsToSave.Add(ConvertSilacDataGridInfoToSilacLabel(info));
@@ -1319,16 +1338,6 @@ namespace MetaMorpheusGUI
             CheckBoxQuantifyUnlabeledForSilac_Checked(sender, e);
         }
 
-        private void CheckBoxMultiplex_Checked(object sender, RoutedEventArgs e)
-        {
-
-        }
-
-        private void SaveAsDefault_Click(object sender, RoutedEventArgs e)
-        {
-            SaveButton_Click(sender, e);
-            Toml.WriteFile(TheTask, Path.Combine(GlobalVariables.DataDir, "DefaultParameters", @"SearchTaskDefault.toml"), MetaMorpheusTask.tomlConfig);
-        }
 
         /// <summary>
         /// Retained/Lost Methionine is best handled through truncation search when truncation search is selected.
@@ -1352,6 +1361,7 @@ namespace MetaMorpheusGUI
         {
             MinInternalFragmentLengthTextBox.Text = "4";
         }
+        
     }
 
     public class DataContextForSearchTaskWindow : INotifyPropertyChanged
